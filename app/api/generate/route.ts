@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+import { db, initDB } from "@/lib/db";
 
 const STYLE_PROMPTS: Record<string, string> = {
   none: "",
@@ -16,59 +16,65 @@ const STYLE_PROMPTS: Record<string, string> = {
   fantasy: "fantasy art, magical, epic, detailed, mystical atmosphere, D&D art style",
 };
 
-async function generateWithTogether(prompt: string, width: number, height: number): Promise<string> {
-  const API_KEY = process.env.TOGETHER_API_KEY;
-
-  if (!API_KEY) throw new Error("TOGETHER_API_KEY topilmadi");
-
-  console.log("Generating with Together.ai...");
-
-  const response = await fetch("https://api.together.xyz/v1/images/generations", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "black-forest-labs/FLUX.1-schnell-Free",
-      prompt,
-      width: Math.min(width, 1024),
-      height: Math.min(height, 1024),
-      steps: 4,
-      n: 1,
-      response_format: "url",
-    }),
-  });
-
-  console.log("Together.ai status:", response.status);
-
-  if (!response.ok) {
-    const text = await response.text();
-    console.log("Together.ai error:", text.slice(0, 300));
-    throw new Error(`Together.ai xatosi ${response.status}: ${text.slice(0, 150)}`);
+async function generateWithFal(prompt: string, width: number, height: number): Promise<string> {
+  const FAL_KEY = process.env.FAL_API_KEY;
+  if (FAL_KEY) {
+    const response = await fetch("https://fal.run/fal-ai/flux/schnell", {
+      method: "POST",
+      headers: {
+        Authorization: `Key ${FAL_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt,
+        image_size: { width: Math.min(width, 1024), height: Math.min(height, 1024) },
+        num_inference_steps: 4,
+        num_images: 1,
+      }),
+    });
+    if (response.ok) {
+      const result = await response.json();
+      if (result.images?.[0]?.url) return result.images[0].url;
+    }
   }
 
-  const result = await response.json();
-  console.log("Together.ai result:", JSON.stringify(result).slice(0, 200));
-
-  if (result.data?.[0]?.url) return result.data[0].url;
-  if (result.data?.[0]?.b64_json) {
-    return `data:image/png;base64,${result.data[0].b64_json}`;
+  const TOGETHER_KEY = process.env.TOGETHER_API_KEY;
+  if (TOGETHER_KEY) {
+    const response = await fetch("https://api.together.xyz/v1/images/generations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${TOGETHER_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "black-forest-labs/FLUX.1-schnell-Free",
+        prompt,
+        width: Math.min(width, 1024),
+        height: Math.min(height, 1024),
+        steps: 4,
+        n: 1,
+      }),
+    });
+    if (response.ok) {
+      const result = await response.json();
+      if (result.data?.[0]?.url) return result.data[0].url;
+      if (result.data?.[0]?.b64_json) return `data:image/png;base64,${result.data[0].b64_json}`;
+    }
   }
 
-  throw new Error("Rasm URL topilmadi");
+  throw new Error("Rasm yaratishda xatolik. Iltimos qayta urining.");
 }
 
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-
     if (!session?.user) {
       return NextResponse.json({ error: "Tizimga kiring" }, { status: 401 });
     }
 
+    await initDB();
     const userId = (session.user as any).id;
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await db.user.findUnique({ where: { id: userId } });
 
     if (!user) {
       return NextResponse.json({ error: "Foydalanuvchi topilmadi" }, { status: 404 });
@@ -79,7 +85,6 @@ export async function POST(req: NextRequest) {
     }
 
     const { prompt, style, size } = await req.json();
-
     if (!prompt?.trim()) {
       return NextResponse.json({ error: "Tavsif kiritilmadi" }, { status: 400 });
     }
@@ -90,27 +95,24 @@ export async function POST(req: NextRequest) {
 
     let imageUrl: string;
     try {
-      imageUrl = await generateWithTogether(fullPrompt, width, height);
+      imageUrl = await generateWithFal(fullPrompt, width, height);
     } catch (err: any) {
-      console.error("Generate failed:", err.message);
       return NextResponse.json({ error: err.message }, { status: 500 });
     }
 
     if (user.credits !== -1) {
-      await prisma.user.update({
+      await db.user.update({
         where: { id: userId },
-        data: { credits: { decrement: 1 } },
+        data: { credits: user.credits - 1 },
       });
     }
 
-    await prisma.generatedImage.create({
+    await db.generatedImage.create({
       data: {
         userId,
         prompt,
         imageUrl: imageUrl.startsWith("data:") ? "base64_image" : imageUrl,
-        model: "flux-schnell-free",
-        width: Math.min(width, 1024),
-        height: Math.min(height, 1024),
+        model: "flux-schnell",
         style: style || "none",
       },
     });

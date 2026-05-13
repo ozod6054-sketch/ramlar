@@ -1,6 +1,6 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import { prisma } from "@/lib/prisma";
+import { db, initDB } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
@@ -16,7 +16,9 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email va parol kiritilmadi");
         }
 
-        const user = await prisma.user.findUnique({
+        await initDB();
+
+        const user = await db.user.findUnique({
           where: { email: credentials.email },
         });
 
@@ -50,16 +52,16 @@ export const authOptions: NextAuthOptions = {
         token.plan = (user as any).plan;
         token.credits = (user as any).credits;
       }
-      // Refresh user data from DB
       if (token.id) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: token.id as string },
-          select: { plan: true, credits: true },
-        });
-        if (dbUser) {
-          token.plan = dbUser.plan;
-          token.credits = dbUser.credits;
-        }
+        try {
+          const dbUser = await db.user.findUnique({
+            where: { id: token.id as string },
+          });
+          if (dbUser) {
+            token.plan = dbUser.plan;
+            token.credits = dbUser.credits;
+          }
+        } catch {}
       }
       return token;
     },
