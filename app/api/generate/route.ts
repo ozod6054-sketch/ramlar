@@ -16,50 +16,71 @@ const STYLE_PROMPTS: Record<string, string> = {
   fantasy: "fantasy art, magical, epic, detailed, mystical atmosphere, D&D art style",
 };
 
-async function generateWithFal(prompt: string, width: number, height: number): Promise<string> {
+async function generateImage(prompt: string, width: number, height: number): Promise<string> {
+  // 1. FAL AI
   const FAL_KEY = process.env.FAL_API_KEY;
   if (FAL_KEY) {
-    const response = await fetch("https://fal.run/fal-ai/flux/schnell", {
-      method: "POST",
-      headers: {
-        Authorization: `Key ${FAL_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        prompt,
-        image_size: { width: Math.min(width, 1024), height: Math.min(height, 1024) },
-        num_inference_steps: 4,
-        num_images: 1,
-      }),
-    });
-    if (response.ok) {
-      const result = await response.json();
-      if (result.images?.[0]?.url) return result.images[0].url;
-    }
+    try {
+      const response = await fetch("https://fal.run/fal-ai/flux/schnell", {
+        method: "POST",
+        headers: { Authorization: `Key ${FAL_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt,
+          image_size: { width: Math.min(width, 1024), height: Math.min(height, 1024) },
+          num_inference_steps: 4,
+          num_images: 1,
+        }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.images?.[0]?.url) return result.images[0].url;
+      }
+    } catch {}
   }
 
+  // 2. Hugging Face
+  const HF_KEY = process.env.HUGGINGFACE_API_TOKEN;
+  if (HF_KEY) {
+    try {
+      const response = await fetch(
+        "https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${HF_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: prompt }),
+        }
+      );
+      if (response.ok) {
+        const blob = await response.blob();
+        const buffer = await blob.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString("base64");
+        return `data:image/png;base64,${base64}`;
+      }
+    } catch {}
+  }
+
+  // 3. Together AI
   const TOGETHER_KEY = process.env.TOGETHER_API_KEY;
   if (TOGETHER_KEY) {
-    const response = await fetch("https://api.together.xyz/v1/images/generations", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${TOGETHER_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "black-forest-labs/FLUX.1-schnell-Free",
-        prompt,
-        width: Math.min(width, 1024),
-        height: Math.min(height, 1024),
-        steps: 4,
-        n: 1,
-      }),
-    });
-    if (response.ok) {
-      const result = await response.json();
-      if (result.data?.[0]?.url) return result.data[0].url;
-      if (result.data?.[0]?.b64_json) return `data:image/png;base64,${result.data[0].b64_json}`;
-    }
+    try {
+      const response = await fetch("https://api.together.xyz/v1/images/generations", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${TOGETHER_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "black-forest-labs/FLUX.1-schnell-Free",
+          prompt,
+          width: Math.min(width, 1024),
+          height: Math.min(height, 1024),
+          steps: 4,
+          n: 1,
+        }),
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.data?.[0]?.url) return result.data[0].url;
+        if (result.data?.[0]?.b64_json) return `data:image/png;base64,${result.data[0].b64_json}`;
+      }
+    } catch {}
   }
 
   throw new Error("Rasm yaratishda xatolik. Iltimos qayta urining.");
@@ -95,7 +116,7 @@ export async function POST(req: NextRequest) {
 
     let imageUrl: string;
     try {
-      imageUrl = await generateWithFal(fullPrompt, width, height);
+      imageUrl = await generateImage(fullPrompt, width, height);
     } catch (err: any) {
       return NextResponse.json({ error: err.message }, { status: 500 });
     }
