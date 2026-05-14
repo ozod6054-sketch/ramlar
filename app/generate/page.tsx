@@ -21,11 +21,7 @@ import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 import Link from "next/link";
 
-declare global {
-  interface Window {
-    puter: any;
-  }
-}
+
 
 const STYLES = [
   { id: "none", label: "Oddiy", emoji: "🎨" },
