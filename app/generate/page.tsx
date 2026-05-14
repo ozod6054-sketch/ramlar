@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, Suspense } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -9,10 +9,8 @@ import {
   Download,
   Share2,
   RefreshCw,
-  Settings,
   Sparkles,
   Lock,
-  ChevronDown,
   Image as ImageIcon,
   Zap,
 } from "lucide-react";
@@ -20,8 +18,6 @@ import { Navbar } from "@/components/Navbar";
 import { cn } from "@/lib/utils";
 import toast from "react-hot-toast";
 import Link from "next/link";
-
-
 
 const STYLES = [
   { id: "none", label: "Oddiy", emoji: "🎨" },
@@ -58,21 +54,7 @@ function GeneratePageContent() {
   const [selectedStyle, setSelectedStyle] = useState("none");
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
   const [generationTime, setGenerationTime] = useState<number | null>(null);
-  const [puterLoaded, setPuterLoaded] = useState(false);
-
-  // Load Puter.js
-  useEffect(() => {
-    if (window.puter) {
-      setPuterLoaded(true);
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://js.puter.com/v2/";
-    script.onload = () => setPuterLoaded(true);
-    document.head.appendChild(script);
-  }, []);
 
   const handleGenerate = async () => {
     if (!session) {
@@ -86,11 +68,6 @@ function GeneratePageContent() {
       return;
     }
 
-    if (!puterLoaded || !window.puter) {
-      toast.error("Yuklanmoqda, bir oz kuting...");
-      return;
-    }
-
     setIsGenerating(true);
     setGeneratedImage(null);
     const startTime = Date.now();
@@ -99,15 +76,19 @@ function GeneratePageContent() {
       const stylePrompt = STYLE_PROMPTS[selectedStyle] || "";
       const fullPrompt = stylePrompt ? `${prompt}, ${stylePrompt}` : prompt;
 
-      // Puter.js bilan FLUX rasm yaratish - bepul!
-      const imageElement = await window.puter.ai.txt2img(fullPrompt, {
-        model: "black-forest-labs/flux-schnell",
-        disable_safety_checker: true,
+      const res = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: fullPrompt, style: selectedStyle, size: "1024x1024" }),
       });
 
-      // img elementdan src olish
-      const imgSrc = imageElement.src || imageElement;
-      setGeneratedImage(imgSrc);
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || "Rasm yaratishda xatolik");
+      }
+
+      setGeneratedImage(data.imageUrl);
       setGenerationTime(Math.round((Date.now() - startTime) / 1000));
       toast.success("Rasm muvaffaqiyatli yaratildi! 🎉");
     } catch (error: any) {
@@ -154,7 +135,6 @@ function GeneratePageContent() {
       <Navbar />
       <div className="pt-24 pb-16 px-4">
         <div className="max-w-6xl mx-auto">
-          {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -166,19 +146,17 @@ function GeneratePageContent() {
             <p className="text-white/50">Xayolingizdagi narsani tasvirlab bering</p>
             <div className="flex items-center justify-center gap-2 mt-3">
               <Zap className="w-4 h-4 text-yellow-400" />
-              <span className="text-white/60 text-sm">Bepul • Cheksiz • FLUX AI</span>
+              <span className="text-white/60 text-sm">FAL AI • FLUX Schnell</span>
             </div>
           </motion.div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Left: Controls */}
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.1 }}
               className="space-y-6"
             >
-              {/* Prompt input */}
               <div className="glass rounded-2xl p-6">
                 <label className="block text-white/80 text-sm font-medium mb-3">
                   📝 Tavsif (Prompt)
@@ -195,7 +173,6 @@ function GeneratePageContent() {
                 </p>
               </div>
 
-              {/* Style selector */}
               <div className="glass rounded-2xl p-6">
                 <label className="block text-white/80 text-sm font-medium mb-3">
                   🎨 Uslub
@@ -219,7 +196,6 @@ function GeneratePageContent() {
                 </div>
               </div>
 
-              {/* Generate button */}
               {!session ? (
                 <div className="glass rounded-2xl p-6 text-center">
                   <Lock className="w-8 h-8 text-white/40 mx-auto mb-3" />
@@ -238,10 +214,10 @@ function GeneratePageContent() {
               ) : (
                 <button
                   onClick={handleGenerate}
-                  disabled={isGenerating || !prompt.trim() || !puterLoaded}
+                  disabled={isGenerating || !prompt.trim()}
                   className={cn(
                     "w-full py-4 rounded-2xl font-bold text-lg transition-all duration-300 flex items-center justify-center gap-3",
-                    isGenerating || !prompt.trim() || !puterLoaded
+                    isGenerating || !prompt.trim()
                       ? "bg-white/10 text-white/40 cursor-not-allowed"
                       : "btn-primary hover:scale-[1.02]"
                   )}
@@ -250,11 +226,6 @@ function GeneratePageContent() {
                     <>
                       <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                       Yaratilmoqda...
-                    </>
-                  ) : !puterLoaded ? (
-                    <>
-                      <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Yuklanmoqda...
                     </>
                   ) : (
                     <>
@@ -267,7 +238,6 @@ function GeneratePageContent() {
               )}
             </motion.div>
 
-            {/* Right: Result */}
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
